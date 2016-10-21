@@ -1,0 +1,198 @@
+---
+title: "Practical Machine Learning Course | Peer Review Project"
+author: "Evgeniy Paskin"
+date: "21 october 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Synopsis
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the quality (class) of excercise execution
+
+The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. We'll use all of the other variables to predict the class. This report describes the model building process as well as cross validation procedures, estimation of the expected out of sample error. 
+
+The resulting model will be used to predict 20 different test cases.
+
+### The Data Description
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement ??? a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. 
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har 
+
+The data comes in two files: training and testing.
+
+### Executive summary & Results highlight:
+
+Based on the analyzed statistics and models it turns out that:
+
+* The data allows us to build very accurate model 
+* Out of 3 used models: Random Forest, SVM Radial and GBM, the RF model showed the best accuracy (>>99%) and was used for further predictions
+* The selected model also showed very zero out-of-sample error rate when checked on testing data (even smaller, than for training data) reaching accuracy of 100%
+* The RF model applied to testing data resulted in 100% correct predictions 
+
+***
+```{r}
+ 
+```
+
+
+ 
+
+ 
+### Loading and preparing data, loading required packages
+
+#### Including required packages
+```{r, message=FALSE}
+library(caret)
+library(ggplot2)
+library(rattle)
+
+set.seed(20161021) # setting seed for reproducibility
+```
+
+
+
+#### Download raw data files
+
+```{r}
+
+# Download data
+trainUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trainCsv <- "pml-training.csv"
+testCsv <- "pml-testing.csv"
+
+if (!file.exists(trainCsv)) {download.file(trainUrl, destfile=trainCsv, method="curl")}
+if (!file.exists(testCsv))  {download.file(testUrl, destfile=testCsv, method="curl")}
+
+# Read files into R
+train <- read.table(trainCsv, sep=",", dec=".", header = TRUE, na.strings=c("NA",""))
+test <- read.table(testCsv, sep=",", dec=".", header = TRUE, na.strings=c("NA",""))
+
+# Removing unnecessary variables
+rm(testCsv, testUrl, trainCsv, trainUrl) 
+```
+
+
+#### Cleaning data
+
+In order to feed the algorithms with the correct data we'll clean up our data set 
+
+##### Cleaning nero zero variance predictors (NZV)
+
+We'll use the 'nearZeroVar' from caret package to remove predictors' which variance is close to 0
+
+```{r}
+NZV <- nearZeroVar(train, saveMetrics = TRUE)
+train <- train[, !NZV$nzv]
+
+# Let's check how many variables were droped
+sum(NZV$nzv)
+```
+
+With this pricedure we've totally dropped `r sum(NZV$nzv)` variables
+
+##### Cleaning predictors which do not relate to the excercise
+
+The first columns contains descriptional data (e.g. individual name) and are not usefull to predict the excercise classe
+
+```{r}
+train <- train[, -(1:6)]
+```
+
+Because Random Forest model doesn't work well with NA's, we'll drop all the variables, with number of NAs > 1300
+```{r}
+train <- train[,colSums(is.na(train)) < 1300 ]
+```
+
+Let's check what are the dimensuions of the resulting train data frame
+
+```{r}
+dim(train)
+```
+
+#### Spliting training data set 80/20
+
+As a next step we'll split the training data set into training (80%) and testing (20%, to check out-of-sample errors rate for our model)
+The method for splitting is caret's function "createDataPartition". 
+
+```{r}
+inTrain <- createDataPartition(train$classe, p=0.80, list=FALSE)
+training <- train[inTrain, ]
+testing <- train[-inTrain, ]
+```
+
+### Model Parameters and preprocessing
+
+We'll gather modeling options into 'trainctrl' variable via trainControl function of the caret package.
+The function controls the computational nuances of the train function.
+
+* To remove noise and redundant (highly correlated variables) we'll use PCA preprocessing
+* To avoid overfittigd we'll used cross validation (5 times per each model)
+
+```{r}
+trainctrl <- trainControl(method = "cv", number = 5 , preProcOptions="pca")
+```
+
+### Modeling and models comparison
+
+The full list of caret's algorithms is presented here (https://topepo.github.io/caret/modelList.html). 
+For our puproses we'll use and compare only several of them: Random Forest (rf), Gradient Boosting Machine (GBM) and Support Vector Machine (SVM)
+These models are very widely used and are considered quite good
+
+
+We'll use cache=TRUE Knitr option for models training to save time on rebuilds
+
+```{r, cache=TRUE,  message=FALSE}
+
+rf <- train(classe ~ ., data = train, method = "rf", trControl= trainctrl)
+svmr <- train(classe ~ ., data = train, method = "svmRadial", trControl= trainctrl)
+gbm <- train(classe ~ ., data = train, method = "gbm", trControl= trainctrl)
+
+```
+
+Let's take a look into models accuracy results:
+
+```{r}
+max(rf$results$Accuracy) # Random forest
+max(svmr$results$Accuracy) # SVM Radial
+max(gbm$results$Accuracy) # Gradient Boosting
+```
+
+Although all models shows quite solid results (>90%), the Random Forest is true leader with 99.4% accuracy. 
+Confusion matrix from the model summary below shows all details
+```{r}
+print(rf)
+print(rf$finalModel)
+```
+
+We'll use this model to predict results on the testing part of the data (20% of the initial dataset) to check for out-of-sample error behavior
+
+```{r}
+# Predicting the classes
+prediction1 <- predict(rf, testing)
+
+# Comparing classes with the actual testing dataset
+confusionMatrix(prediction1, testing$classe)
+```
+
+Accuracy on the testing data reached 100%.
+The out-of-sample error rate (zero) is even lower than the in-sample. 
+That means that chances are our model is quite good.
+
+### Prediction of TEST data
+
+We'll use our model to predict classes for test data:
+
+```{r}
+prediction2 <- predict(rf, test)
+as.data.frame(prediction2)
+```
+
+The prediction seems correct, as the final score is 100% (20/20)
